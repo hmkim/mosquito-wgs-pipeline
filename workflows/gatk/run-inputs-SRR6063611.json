@@ -1,0 +1,14 @@
+{
+  "fastq_r1": "s3://<BUCKET>/raw/SRR6063611/SRR6063611_R1.fastq.gz",
+  "fastq_r2": "s3://<BUCKET>/raw/SRR6063611/SRR6063611_R2.fastq.gz",
+  "sample_id": "SRR6063611",
+  "reference_fasta": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta",
+  "reference_fasta_idx": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.fai",
+  "reference_dict": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.dict",
+  "reference_bwt_2bit_64": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.bwt.2bit.64",
+  "reference_0123": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.0123",
+  "reference_ann": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.ann",
+  "reference_amb": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.amb",
+  "reference_pac": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.pac",
+  "docker_image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/nea-ehi-gatk:latest"
+}

@@ -1,0 +1,8 @@
+.omc/
+.claude/
+.DS_Store
+*.zip
+papers/
+genomes/
+ref_data/
+email/

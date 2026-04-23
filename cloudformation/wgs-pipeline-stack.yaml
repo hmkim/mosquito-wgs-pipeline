@@ -1,0 +1,384 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  WGS Pipeline EC2 Stack — Ae. aegypti GATK Pipeline
+  Provisions an r5.4xlarge instance with all bioinformatics tools pre-installed,
+  S3 bucket for data, and IAM roles for pipeline execution.
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: r5.4xlarge
+    AllowedValues:
+      - r5.2xlarge
+      - r5.4xlarge
+      - r5.8xlarge
+      - r6i.4xlarge
+    Description: EC2 instance type (r5.4xlarge = 16 vCPU, 128 GB RAM recommended)
+
+  VolumeSize:
+    Type: Number
+    Default: 500
+    MinValue: 200
+    MaxValue: 2000
+    Description: EBS volume size in GB (gp3)
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to launch the instance in
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet for the EC2 instance
+
+  AllowedSSHCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed for SSH access (restrict in production)
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Amazon Linux 2023 latest AMI (auto-resolved via SSM)
+
+  ProjectTag:
+    Type: String
+    Default: nea-ehi-wgs
+    Description: Project tag for resource identification
+
+Resources:
+  # ─── S3 Bucket for pipeline data ───
+  PipelineDataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectTag}-data-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  # ─── IAM Role for EC2 ───
+  PipelineInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectTag}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: PipelineS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt PipelineDataBucket.Arn
+                  - !Sub '${PipelineDataBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - 'arn:aws:s3:::broad-references'
+                  - 'arn:aws:s3:::broad-references/*'
+        - PolicyName: PipelineECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:CreateRepository
+                  - ecr:DescribeRepositories
+                Resource: '*'
+        - PolicyName: PipelineOmicsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - omics:*
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  PipelineInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectTag}-ec2-profile'
+      Roles:
+        - !Ref PipelineInstanceRole
+
+  # ─── Security Group ───
+  PipelineSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectTag}-sg'
+      GroupDescription: Security group for WGS pipeline EC2 instance
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSSHCidr
+          Description: SSH access
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  # ─── EC2 Instance ───
+  PipelineInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT60M
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          full_install:
+            - install_deps
+            - install_biotools
+            - setup_workspace
+        install_deps:
+          packages:
+            yum:
+              autoconf: []
+              automake: []
+              make: []
+              gcc: []
+              gcc-c++: []
+              zlib-devel: []
+              bzip2-devel: []
+              xz-devel: []
+              libcurl-devel: []
+              openssl-devel: []
+              ncurses-devel: []
+              java-17-amazon-corretto-headless: []
+              python3: []
+              python3-pip: []
+              perl-FindBin: []
+              docker: []
+              git: []
+              unzip: []
+              wget: []
+              htop: []
+              tmux: []
+          commands:
+            01_start_docker:
+              command: |
+                systemctl enable docker
+                systemctl start docker
+                usermod -aG docker ec2-user
+            02_python_symlink:
+              command: ln -sf /usr/bin/python3 /usr/bin/python
+              test: '! test -L /usr/bin/python'
+        install_biotools:
+          commands:
+            01_samtools:
+              command: |
+                cd /tmp
+                wget -q https://github.com/samtools/samtools/releases/download/1.20/samtools-1.20.tar.bz2
+                tar -xjf samtools-1.20.tar.bz2 && cd samtools-1.20
+                ./configure --prefix=/usr/local && make -j$(nproc) && make install
+                rm -rf /tmp/samtools-1.20*
+              test: '! command -v samtools'
+            02_htslib:
+              command: |
+                cd /tmp
+                wget -q https://github.com/samtools/htslib/releases/download/1.20/htslib-1.20.tar.bz2
+                tar -xjf htslib-1.20.tar.bz2 && cd htslib-1.20
+                ./configure --prefix=/usr/local && make -j$(nproc) && make install
+                rm -rf /tmp/htslib-1.20*
+              test: '! command -v tabix'
+            03_bcftools:
+              command: |
+                cd /tmp
+                wget -q https://github.com/samtools/bcftools/releases/download/1.20/bcftools-1.20.tar.bz2
+                tar -xjf bcftools-1.20.tar.bz2 && cd bcftools-1.20
+                make -j$(nproc) && make install
+                rm -rf /tmp/bcftools-1.20*
+              test: '! command -v bcftools'
+            04_bwa_mem2:
+              command: |
+                cd /opt
+                wget -qO- https://github.com/bwa-mem2/bwa-mem2/releases/download/v2.2.1/bwa-mem2-2.2.1_x64-linux.tar.bz2 \
+                  | tar -xjf -
+                ln -sf /opt/bwa-mem2-2.2.1_x64-linux/bwa-mem2 /usr/local/bin/bwa-mem2
+              test: '! command -v bwa-mem2'
+            05_gatk:
+              command: |
+                cd /opt
+                wget -q https://github.com/broadinstitute/gatk/releases/download/4.5.0.0/gatk-4.5.0.0.zip
+                unzip -q gatk-4.5.0.0.zip && rm gatk-4.5.0.0.zip
+                ln -sf /opt/gatk-4.5.0.0/gatk /usr/local/bin/gatk
+              test: '! command -v gatk'
+            06_fastqc:
+              command: |
+                cd /opt
+                wget -q https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.12.1.zip
+                unzip -q fastqc_v0.12.1.zip && rm fastqc_v0.12.1.zip
+                chmod +x /opt/FastQC/fastqc
+                ln -sf /opt/FastQC/fastqc /usr/local/bin/fastqc
+              test: '! command -v fastqc'
+            07_fastp:
+              command: |
+                wget -qO /usr/local/bin/fastp http://opengene.org/fastp/fastp
+                chmod +x /usr/local/bin/fastp
+              test: '! command -v fastp'
+            08_multiqc:
+              command: pip3 install multiqc==1.22
+              test: '! command -v multiqc'
+            09_ncbi_datasets:
+              command: |
+                wget -qO /usr/local/bin/datasets "https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets"
+                chmod +x /usr/local/bin/datasets
+              test: '! command -v datasets'
+        setup_workspace:
+          commands:
+            01_create_dirs:
+              command: |
+                su - ec2-user -c "mkdir -p /home/ec2-user/wgs-pipeline/{reference/mosquito/AaegL5,test_data,results/gatk,scripts,workflows/gatk,logs}"
+            02_download_scripts:
+              command: !Sub |
+                aws s3 sync s3://${PipelineDataBucket}/scripts/ /home/ec2-user/wgs-pipeline/scripts/ --region ${AWS::Region}
+                chmod +x /home/ec2-user/wgs-pipeline/scripts/*.sh
+                chown -R ec2-user:ec2-user /home/ec2-user/wgs-pipeline/
+            03_env_profile:
+              command: !Sub
+                - |
+                  cat >> /home/ec2-user/.bashrc << 'ENVEOF'
+
+                  # WGS Pipeline Environment
+                  export WGS_HOME="/home/ec2-user/wgs-pipeline"
+                  export REF_DIR="$WGS_HOME/reference/mosquito/AaegL5"
+                  export REF="$REF_DIR/AaegL5.fasta"
+                  export DATA_BUCKET="${BucketName}"
+                  export AWS_DEFAULT_REGION="${Region}"
+                  export PATH="/opt/gatk-4.5.0.0:/opt/bwa-mem2-2.2.1_x64-linux:$PATH"
+                  ENVEOF
+                  chown ec2-user:ec2-user /home/ec2-user/.bashrc
+                - BucketName: !Ref PipelineDataBucket
+                  Region: !Ref AWS::Region
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref PipelineInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref PipelineSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+            VolumeType: gp3
+            Iops: 6000
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-pipeline-instance'
+        - Key: Project
+          Value: !Ref ProjectTag
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > >(tee /var/log/user-data.log) 2>&1
+          echo "=== WGS Pipeline Instance Bootstrap ==="
+          echo "Start time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          # Update system
+          dnf update -y
+
+          # Install cfn-bootstrap
+          dnf install -y aws-cfn-bootstrap
+
+          # Run cfn-init
+          /opt/aws/bin/cfn-init -v \
+            --stack ${AWS::StackName} \
+            --resource PipelineInstance \
+            --configsets full_install \
+            --region ${AWS::Region}
+
+          # Ensure python symlink exists (required by GATK)
+          ln -sf /usr/bin/python3 /usr/bin/python
+
+          # Verify installations (use || true to avoid aborting on version check failure)
+          echo "=== Tool Verification ==="
+          samtools --version | head -1 || true
+          bcftools --version | head -1 || true
+          bwa-mem2 version 2>&1 | head -1 || true
+          gatk --version 2>&1 | head -2 || true
+          fastqc --version 2>&1 || true
+          fastp --version 2>&1 || true
+          multiqc --version 2>&1 || true
+          java -version 2>&1 || true
+          echo "=== Verification Complete ==="
+
+          echo "End time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          # Signal CloudFormation
+          /opt/aws/bin/cfn-signal -e $? \
+            --stack ${AWS::StackName} \
+            --resource PipelineInstance \
+            --region ${AWS::Region}
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref PipelineInstance
+
+  InstancePrivateIp:
+    Description: Private IP address
+    Value: !GetAtt PipelineInstance.PrivateIp
+
+  InstancePublicIp:
+    Description: Public IP address (if available)
+    Value: !GetAtt PipelineInstance.PublicIp
+
+  SSMSessionCommand:
+    Description: Command to connect via SSM Session Manager
+    Value: !Sub 'aws ssm start-session --target ${PipelineInstance} --region ${AWS::Region}'
+
+  S3BucketName:
+    Description: S3 bucket for pipeline data
+    Value: !Ref PipelineDataBucket
+
+  S3BucketArn:
+    Description: S3 bucket ARN
+    Value: !GetAtt PipelineDataBucket.Arn
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref PipelineSecurityGroup
+
+  IAMRoleArn:
+    Description: IAM Role ARN for the EC2 instance
+    Value: !GetAtt PipelineInstanceRole.Arn
