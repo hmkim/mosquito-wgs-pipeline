@@ -1,0 +1,8 @@
+{
+  "ParabricksGermline.inputFASTQ_1": "s3://nea-ehi-wgs-data-664263524008-ap-northeast-2/raw/mosquito-wgs/SRR6063611/SRR6063611_R1.fastq.gz",
+  "ParabricksGermline.inputFASTQ_2": "s3://nea-ehi-wgs-data-664263524008-ap-northeast-2/raw/mosquito-wgs/SRR6063611/SRR6063611_R2.fastq.gz",
+  "ParabricksGermline.inputRefTarball": "s3://nea-ehi-wgs-data-664263524008-ap-northeast-2/reference/mosquito/AaegL5/AaegL5.fasta.tar",
+  "ParabricksGermline.sample_id": "SRR6063611",
+  "ParabricksGermline.pb_version": "4.3.1-1",
+  "ParabricksGermline.ecr_registry": "664263524008.dkr.ecr.ap-northeast-2.amazonaws.com"
+}

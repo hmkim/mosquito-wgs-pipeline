@@ -1,0 +1,438 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Sentieon License Server Stack — NEA-EHI WGS Pipeline
+  Provisions a dedicated VPC (or uses existing), a lightweight EC2 instance
+  running the Sentieon license daemon, and VPC networking for AWS HealthOmics.
+
+Parameters:
+  CreateNewVpc:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Create a dedicated VPC for HealthOmics (true) or use an existing VPC (false)
+
+  ExistingVpcId:
+    Type: String
+    Default: ''
+    Description: Existing VPC ID (only used when CreateNewVpc=false)
+
+  ExistingSubnetId:
+    Type: String
+    Default: ''
+    Description: Existing Subnet ID (only used when CreateNewVpc=false)
+
+  NewVpcCidr:
+    Type: String
+    Default: '10.100.0.0/16'
+    Description: CIDR block for the new VPC (only used when CreateNewVpc=true)
+
+  PublicSubnet1Cidr:
+    Type: String
+    Default: '10.100.1.0/24'
+    Description: CIDR for public subnet AZ-a (only used when CreateNewVpc=true)
+
+  PublicSubnet2Cidr:
+    Type: String
+    Default: '10.100.2.0/24'
+    Description: CIDR for public subnet AZ-b (only used when CreateNewVpc=true)
+
+  DataBucketName:
+    Type: String
+    Description: Existing S3 bucket name for pipeline data (license files stored under sentieon/)
+
+  SentieonVersion:
+    Type: String
+    Default: '202503.03'
+    Description: Sentieon software version to install
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Amazon Linux 2023 latest AMI (auto-resolved via SSM)
+
+  ProjectTag:
+    Type: String
+    Default: nea-ehi-wgs
+    Description: Project tag for resource identification
+
+Conditions:
+  ShouldCreateVpc: !Equals [!Ref CreateNewVpc, 'true']
+  UseExistingVpc:  !Not [!Condition ShouldCreateVpc]
+
+Resources:
+  # ============================================================
+  # VPC Resources (created only when CreateNewVpc=true)
+  # ============================================================
+  OmicsVpc:
+    Type: AWS::EC2::VPC
+    Condition: ShouldCreateVpc
+    Properties:
+      CidrBlock: !Ref NewVpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-omics-vpc'
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: ShouldCreateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-omics-igw'
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: ShouldCreateVpc
+    Properties:
+      VpcId: !Ref OmicsVpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: ShouldCreateVpc
+    Properties:
+      VpcId: !Ref OmicsVpc
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-omics-public-1a'
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: ShouldCreateVpc
+    Properties:
+      VpcId: !Ref OmicsVpc
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-omics-public-1b'
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: ShouldCreateVpc
+    Properties:
+      VpcId: !Ref OmicsVpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-omics-public-rt'
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: ShouldCreateVpc
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: ShouldCreateVpc
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: ShouldCreateVpc
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ShouldCreateVpc
+    Properties:
+      VpcId: !Ref OmicsVpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PublicRouteTable
+
+  # ============================================================
+  # Security Groups
+  # ============================================================
+  LicenseServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Sentieon license server - allows TCP 8990 from VPC
+      VpcId: !If
+        - ShouldCreateVpc
+        - !Ref OmicsVpc
+        - !Ref ExistingVpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8990
+          ToPort: 8990
+          CidrIp: !If
+            - ShouldCreateVpc
+            - !Ref NewVpcCidr
+            - '172.31.0.0/16'
+          Description: Sentieon license daemon
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-sentieon-license-sg'
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  OmicsTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HealthOmics workflow tasks - outbound to license server and S3
+      VpcId: !If
+        - ShouldCreateVpc
+        - !Ref OmicsVpc
+        - !Ref ExistingVpcId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+          Description: All outbound (license server, S3, CloudWatch)
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-omics-task-sg'
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  # ============================================================
+  # IAM Role for License Server
+  # ============================================================
+  LicenseServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectTag}-sentieon-license-role-${AWS::Region}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: SentieonLicenseS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${DataBucketName}'
+                  - !Sub 'arn:aws:s3:::${DataBucketName}/sentieon/*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+
+  LicenseServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectTag}-sentieon-license-profile-${AWS::Region}'
+      Roles:
+        - !Ref LicenseServerRole
+
+  # ============================================================
+  # EC2 Instance for License Server
+  # ============================================================
+  LicenseServerInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          full_install:
+            - install_deps
+            - install_sentieon
+            - configure_license_server
+        install_deps:
+          packages:
+            yum:
+              wget: []
+              tar: []
+              gzip: []
+        install_sentieon:
+          commands:
+            01_download_sentieon:
+              command: !Sub |
+                cd /opt
+                wget -q https://s3.amazonaws.com/sentieon-release/software/sentieon-genomics-${SentieonVersion}.tar.gz
+                tar -xzf sentieon-genomics-${SentieonVersion}.tar.gz
+                ln -sf /opt/sentieon-genomics-${SentieonVersion} /opt/sentieon
+                rm -f sentieon-genomics-${SentieonVersion}.tar.gz
+              test: '! test -d /opt/sentieon'
+            02_add_to_path:
+              command: |
+                echo 'export PATH=/opt/sentieon/bin:$PATH' >> /etc/profile.d/sentieon.sh
+                chmod +x /etc/profile.d/sentieon.sh
+        configure_license_server:
+          commands:
+            01_create_license_dir:
+              command: mkdir -p /opt/sentieon/licenses
+            02_try_download_license:
+              command: !Sub |
+                aws s3 cp s3://${DataBucketName}/sentieon/ /opt/sentieon/licenses/ \
+                  --recursive --exclude "*" --include "*.lic" \
+                  --region ${AWS::Region} 2>/dev/null || \
+                  echo "No license file in S3 yet — upload after receiving from Sentieon"
+            03_create_systemd_service:
+              command: |
+                cat > /etc/systemd/system/sentieon-licsrvr.service << 'SVCEOF'
+                [Unit]
+                Description=Sentieon License Server
+                After=network.target
+
+                [Service]
+                Type=forking
+                User=root
+                ExecStart=/bin/bash -c '/opt/sentieon/bin/sentieon licsrvr --start --log /var/log/sentieon-licsrvr.log /opt/sentieon/licenses/*.lic'
+                ExecStop=/bin/bash -c '/opt/sentieon/bin/sentieon licsrvr --stop'
+                Restart=on-failure
+                RestartSec=10
+
+                [Install]
+                WantedBy=multi-user.target
+                SVCEOF
+                systemctl daemon-reload
+            04_create_start_script:
+              command: !Sub |
+                cat > /usr/local/bin/sentieon-license-start.sh << 'SCRIPTEOF'
+                #!/bin/bash
+                set -euo pipefail
+                REGION="${AWS::Region}"
+                BUCKET="${DataBucketName}"
+
+                echo "[INFO] Downloading license file from S3..."
+                aws s3 cp "s3://${!BUCKET}/sentieon/" /opt/sentieon/licenses/ \
+                  --recursive --exclude "*" --include "*.lic" --region "${!REGION}"
+
+                if ! ls /opt/sentieon/licenses/*.lic 1>/dev/null 2>&1; then
+                  echo "[ERROR] No .lic file found. Upload to s3://${!BUCKET}/sentieon/ first."
+                  exit 1
+                fi
+
+                echo "[INFO] Starting Sentieon license server..."
+                systemctl enable --now sentieon-licsrvr
+                sleep 2
+                systemctl status sentieon-licsrvr --no-pager
+
+                PRIVATE_IP=$(hostname -I | awk '{print $1}')
+                echo ""
+                echo "============================================"
+                echo " License server running on port 8990"
+                echo " SENTIEON_LICENSE=${!PRIVATE_IP}:8990"
+                echo "============================================"
+                SCRIPTEOF
+                chmod +x /usr/local/bin/sentieon-license-start.sh
+    Properties:
+      InstanceType: t3.medium
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref LicenseServerInstanceProfile
+      SubnetId: !If
+        - ShouldCreateVpc
+        - !Ref PublicSubnet1
+        - !Ref ExistingSubnetId
+      SecurityGroupIds:
+        - !Ref LicenseServerSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectTag}-sentieon-license-server'
+        - Key: Project
+          Value: !Ref ProjectTag
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > >(tee /var/log/user-data.log) 2>&1
+          echo "=== Sentieon License Server Bootstrap ==="
+          echo "Start time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          dnf update -y
+          dnf install -y aws-cfn-bootstrap
+
+          /opt/aws/bin/cfn-init -v \
+            --stack ${AWS::StackName} \
+            --resource LicenseServerInstance \
+            --configsets full_install \
+            --region ${AWS::Region}
+
+          echo "=== Sentieon version ==="
+          /opt/sentieon/bin/sentieon driver --version 2>&1 || true
+
+          echo "End time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          /opt/aws/bin/cfn-signal -e $? \
+            --stack ${AWS::StackName} \
+            --resource LicenseServerInstance \
+            --region ${AWS::Region}
+
+Outputs:
+  VpcId:
+    Description: VPC ID used by the stack
+    Value: !If
+      - ShouldCreateVpc
+      - !Ref OmicsVpc
+      - !Ref ExistingVpcId
+
+  LicenseServerPrivateIp:
+    Description: Private IP address of the license server (send to Sentieon for license file)
+    Value: !GetAtt LicenseServerInstance.PrivateIp
+
+  LicenseServerInstanceId:
+    Description: EC2 Instance ID of the license server
+    Value: !Ref LicenseServerInstance
+
+  SSMSessionCommand:
+    Description: Command to connect via SSM Session Manager
+    Value: !Sub 'aws ssm start-session --target ${LicenseServerInstance} --region ${AWS::Region}'
+
+  LicenseAddress:
+    Description: License server address for SENTIEON_LICENSE env var
+    Value: !Sub '${LicenseServerInstance.PrivateIp}:8990'
+
+  S3LicensePath:
+    Description: S3 path to upload the license file
+    Value: !Sub 's3://${DataBucketName}/sentieon/'
+
+  OmicsTaskSecurityGroupId:
+    Description: Security group ID for HealthOmics task VPC networking
+    Value: !Ref OmicsTaskSecurityGroup
+
+  OmicsSubnetIds:
+    Description: Subnet IDs for HealthOmics task VPC networking
+    Value: !If
+      - ShouldCreateVpc
+      - !Sub '${PublicSubnet1},${PublicSubnet2}'
+      - !Ref ExistingSubnetId
+
+  LicenseServerSecurityGroupId:
+    Description: Security group ID of the license server
+    Value: !Ref LicenseServerSecurityGroup

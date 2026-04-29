@@ -6,3 +6,22 @@ papers/
 genomes/
 ref_data/
 email/
+
+# License files
+*.lic
+
+# Local config
+.mcp.json
+
+# Large data / concordance working files
+test_sentieon/
+
+# External repos
+sentieon-amazon-omics/
+parabricks-omics-private-workflows/
+
+# PDFs (papers, copyrighted)
+*.pdf
+
+# Internal emails
+*.eml

@@ -1,6 +1,6 @@
 # Data Inventory — Mosquito WGS Genomics Pipeline
 
-**Date:** 2026-04-14  |  **Region:** ap-northeast-2  |  **Total Size:** 178.4 GiB (32 objects)
+**Date:** 2026-04-14 (updated 2026-04-27)  |  **Region:** ap-northeast-2  |  **Total Size:** ~268 GiB (raw + reference + Parabricks output)
 
 ---
 
@@ -111,7 +111,23 @@ pigz -p 8 ./raw_fastq/{SRR}_1.fastq && pigz -p 8 ./raw_fastq/{SRR}_2.fastq
 
 ---
 
-## 5. S3 Directory Structure
+## 5. Parabricks Batch Output (82.4 GiB)
+
+**Date:** 2026-04-26  
+**Platform:** AWS Batch, g5.12xlarge (4x A10G)  
+**S3 Prefix:** `output/parabricks-batch/SRR6063611/`
+
+| File | Size | Description |
+|------|------|-------------|
+| `SRR6063611.pb.bam` | 23.6 GiB | Sorted, deduped BAM (Parabricks fq2bam) |
+| `SRR6063611.pb.bam.bai` | 3.8 MiB | BAM index |
+| `SRR6063611.g.vcf` | 53.2 GiB | Uncompressed gVCF (Parabricks haplotypecaller --gvcf) |
+
+Note: Parabricks outputs uncompressed gVCF by default. The 53.2 GiB file corresponds to ~6.8 GiB compressed (`.g.vcf.gz`).
+
+---
+
+## 6. S3 Directory Structure
 
 ```
 <BUCKET>/
@@ -124,11 +140,16 @@ pigz -p 8 ./raw_fastq/{SRR}_1.fastq && pigz -p 8 ./raw_fastq/{SRR}_2.fastq
 ├── reference/mosquito/AaegL5/
 │   ├── AaegL5.fasta + .fai + .dict      (genome + indices)
 │   ├── AaegL5.fasta.{0123,amb,ann,bwt.2bit.64,pac}  (BWA-mem2)
+│   ├── AaegL5.fasta.{bwt,sa}            (BWA v0.7.x)
+│   ├── AaegL5.fasta.tar                  (Parabricks ref tarball, 3.3 GiB)
 │   ├── AaegL5.gff3                       (annotation)
 │   ├── cds_from_genomic.fna, protein.faa, rna.fna
 │   └── sequence_report.jsonl
 ├── results/gatk/
 │   └── test_cohort.{raw,filtered}.vcf.gz
+├── output/parabricks-batch/
+│   └── SRR6063611/                        (BAM + gVCF, 82.4 GiB)
+├── omics-output/                          (HealthOmics run outputs)
 └── scripts/
     └── 01-05 pipeline scripts
 ```

@@ -1,0 +1,23 @@
+{
+  "SentieonDNAscopeMosquito.fastq_r1":           "s3://<BUCKET>/raw/mosquito-wgs/SRR6063611/SRR6063611_R1.fastq.gz",
+  "SentieonDNAscopeMosquito.fastq_r2":           "s3://<BUCKET>/raw/mosquito-wgs/SRR6063611/SRR6063611_R2.fastq.gz",
+  "SentieonDNAscopeMosquito.sample_id":          "SRR6063611",
+  "SentieonDNAscopeMosquito.read_group":         "@RG\\tID:SRR6063611\\tSM:SRR6063611\\tPL:ILLUMINA\\tLB:lib1",
+  "SentieonDNAscopeMosquito.reference_fasta":     "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta",
+  "SentieonDNAscopeMosquito.reference_fasta_fai": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.fai",
+  "SentieonDNAscopeMosquito.reference_dict":      "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.dict",
+  "SentieonDNAscopeMosquito.reference_bwt":       "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.bwt",
+  "SentieonDNAscopeMosquito.reference_sa":        "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.sa",
+  "SentieonDNAscopeMosquito.reference_ann":       "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.ann",
+  "SentieonDNAscopeMosquito.reference_amb":       "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.amb",
+  "SentieonDNAscopeMosquito.reference_pac":       "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.pac",
+  "SentieonDNAscopeMosquito.sentieon_license":    "<LICENSE_SERVER_PRIVATE_IP>:8990",
+  "SentieonDNAscopeMosquito.sentieon_docker":     "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/nea-ehi-sentieon:omics-1",
+  "SentieonDNAscopeMosquito.output_cram":         true,
+  "SentieonDNAscopeMosquito.emit_gvcf":           true,
+  "SentieonDNAscopeMosquito.run_dnascope":        true,
+  "SentieonDNAscopeMosquito.alignment_cpu":       32,
+  "SentieonDNAscopeMosquito.alignment_memory":    "64 GiB",
+  "SentieonDNAscopeMosquito.calling_cpu":         32,
+  "SentieonDNAscopeMosquito.calling_memory":      "64 GiB"
+}

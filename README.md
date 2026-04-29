@@ -32,21 +32,43 @@ FASTQ (R1/R2)
 │   └── scripts/
 │       ├── 01_prepare_reference.sh   # Reference genome indexing
 │       ├── 02_simulate_reads.sh      # Test data generation (wgsim)
-│       ├── 03_run_per_sample.sh      # Per-sample pipeline
+│       ├── 03_run_per_sample.sh      # Per-sample pipeline (BWA-mem2)
 │       ├── 04_joint_genotyping.sh    # Joint genotyping
 │       └── 05_run_full_test.sh       # End-to-end test runner
 ├── workflows/
-│   └── gatk/
-│       ├── Dockerfile                # Docker image (GATK 4.5 + BWA-mem2 + tools)
-│       ├── gatk-mosquito.wdl         # Per-sample WDL workflow (HealthOmics)
-│       ├── joint-genotyping.wdl      # Joint genotyping WDL workflow
-│       ├── run-inputs-SRR6063611.json # Example run inputs
-│       ├── omics-trust-policy.json   # IAM trust policy for HealthOmics
-│       └── omics-permissions-policy.json # IAM permissions policy
+│   ├── gatk/                         # BWA-mem2 variant (original)
+│   │   ├── Dockerfile
+│   │   ├── gatk-mosquito.wdl         # Per-sample WDL (HealthOmics)
+│   │   ├── joint-genotyping.wdl      # Joint genotyping WDL
+│   │   ├── run-inputs-SRR6063611.json
+│   │   ├── omics-trust-policy.json
+│   │   └── omics-permissions-policy.json
+│   ├── gatk-bwa/                     # BWA v0.7.x variant (HealthOmics-optimized)
+│   │   ├── Dockerfile
+│   │   ├── gatk-mosquito-bwa.wdl     # Per-sample WDL using BWA
+│   │   ├── run-inputs-SRR6063611.json
+│   │   └── README.md
+│   └── parabricks/                   # GPU-accelerated variant
+│       ├── batch-run.sh              # AWS Batch job script (validated)
+│       ├── batch-execution-plan.md   # Batch infrastructure setup
+│       ├── gpu-test/gpu-probe.wdl    # GPU acceleratorType probe workflow
+│       ├── v6-a10g/                  # HealthOmics WDL (fq2bam + HC)
+│       ├── run-parabricks.sh         # Standalone EC2 GPU script
+│       └── README.md
+├── healthomics-gpu-inquiry.eml       # GPU regional availability inquiry to HealthOmics SA
+├── pipeline-analysis-crawford2024.md # Crawford et al. 2024 pipeline comparison
 ├── data-inventory.md                 # S3 data catalog
-├── test-results.md                   # EC2 and HealthOmics test results
+├── test-results.md                   # EC2, HealthOmics, and Batch test results
 └── healthomics-performance-report.md # Performance analysis report
 ```
+
+## Pipeline Variants
+
+| Variant | Aligner | Platform | Best For |
+|---|---|---|---|
+| `workflows/gatk/` | BWA-mem2 v2.2.1 | EC2 (AVX-512), HealthOmics | EC2 with AVX-512 support |
+| `workflows/gatk-bwa/` | BWA v0.7.19 | EC2, HealthOmics | Tested; no improvement over BWA-mem2 on HealthOmics |
+| `workflows/parabricks/` | Parabricks fq2bam (GPU) | AWS Batch (g5.12xlarge), HealthOmics (omics.g5.12xlarge, us-east-1) | **Recommended** — Batch: 37 min/$3.66, Omics: 45 min/$5.82 |
 
 ## Quick Start
 
@@ -130,25 +152,38 @@ See [test-results.md](test-results.md) for detailed EC2 and HealthOmics run resu
 
 See [healthomics-performance-report.md](healthomics-performance-report.md) for a detailed comparison of EC2 vs HealthOmics performance and cost, including root cause analysis of the observed performance gap.
 
-**Summary:** HealthOmics completed the pipeline successfully but was 2.2x slower overall and 49% more expensive per sample compared to EC2 m5.2xlarge. The primary cause is SIMD instruction set availability affecting BWA-mem2 (5.4x slower) and general CPU performance affecting HaplotypeCaller (1.8x slower).
+**Summary:**
+
+| Platform | Pipeline Time | Cost/Sample | vs EC2 |
+|---|---:|---:|---:|
+| EC2 m5.2xlarge (BWA-mem2, CPU) | 12.6h | $7.02 | baseline |
+| HealthOmics (BWA-mem2, CPU) | 27.4h | $10.46 | 2.2x slower, +49% |
+| HealthOmics (BWA v0.7.19, CPU) | 20.5h | $8.57 | 1.6x slower, +22% |
+| **AWS Batch g5.12xlarge (Parabricks, GPU)** | **37 min** | **$4.16** | **20x faster, -41%** |
+| **HealthOmics omics.g5.12xlarge (Parabricks, GPU)** | **46 min** | **$5.90** | **16x faster, -16%** |
+
+Parabricks GPU is the clear winner on both platforms. Batch GPU is cheapest ($4.16 OD, Spot ~$1.66); HealthOmics GPU ($5.90) is 42% more than Batch — almost entirely due to 35% higher hourly rate (managed service margin). Both are us-east-1 for HealthOmics GPU (A10G).
 
 ## S3 Data Layout
 
 ```
 s3://<BUCKET>/
-├── raw/               # Raw FASTQ files (per sample)
-├── reference/         # Reference genome + indices
+├── raw/                          # Raw FASTQ files (per sample)
+├── reference/                    # Reference genome + indices (BWA-mem2, BWA, Parabricks tarball)
 │   └── mosquito/AaegL5/
-├── results/           # Pipeline outputs (gVCF, VCF, metrics)
-│   └── gatk/
-├── scripts/           # Pipeline shell scripts
-└── omics-output/      # HealthOmics run outputs
+├── results/gatk/                 # Simulated data pipeline outputs
+├── output/parabricks-batch/      # Parabricks GPU outputs (BAM, gVCF)
+├── omics-output/                 # HealthOmics run outputs
+└── scripts/                      # Pipeline shell scripts
 ```
 
 See [data-inventory.md](data-inventory.md) for the complete data catalog.
 
 ## Known Issues
 
-1. **BWA-mem2 on HealthOmics:** 5.4x slower due to SIMD fallback. Consider using `minimap2` or `bwa mem` (v0.7.x) as alternatives.
+1. **BWA-mem2 on HealthOmics:** 5.4x slower due to SIMD fallback (AVX-512 → SSE4.x). BWA v0.7.19 tested but shows identical performance (456 vs 482 min). **Resolved:** Use Parabricks GPU via `workflows/parabricks/` on AWS Batch (37 min) or HealthOmics GPU in us-east-1 (45 min).
 2. **HealthOmics read-only input paths:** WDL tasks must stage reference files to a writable directory (`/tmp/ref`) before tools that require co-located index files.
 3. **BWA-mem2 symlink resolution:** Must invoke via full path (`/opt/bwa-mem2-2.2.1_x64-linux/bwa-mem2`) to ensure correct SIMD binary selection.
+4. **Parabricks GPU VRAM requirement:** HaplotypeCaller needs A10G (24 GiB VRAM) or better — T4 (16 GiB) hits CUDA OOM on *Ae. aegypti* 1.3 Gbp genome. AWS Batch g5.12xlarge and HealthOmics omics.g5.12xlarge (both 4x A10G) are validated.
+5. **HealthOmics A10G regional availability:** `nvidia-tesla-a10g` acceleratorType only works in us-east-1. In ap-northeast-2 and ap-southeast-1 it returns `UNSUPPORTED_GPU_INSTANCE_TYPE`. `nvidia-tesla-t4-a10g` always selects T4 (lowest cost) in all tested regions, which is insufficient for HaplotypeCaller. Inquiry sent to HealthOmics team — see `healthomics-gpu-inquiry.eml`.
+6. **HealthOmics GPU provisioning latency:** GPU instance provisioning on HealthOmics took ~52 min for Run 1587591 (us-east-1), resulting in 105 min wall-clock for 45 min of compute. This may vary with fleet availability.

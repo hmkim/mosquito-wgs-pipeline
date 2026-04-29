@@ -1,0 +1,14 @@
+{
+  "GatkMosquitoPipeline.fastq_r1": "s3://<BUCKET>/raw/mosquito-wgs/SRR6063611/SRR6063611_R1.fastq.gz",
+  "GatkMosquitoPipeline.fastq_r2": "s3://<BUCKET>/raw/mosquito-wgs/SRR6063611/SRR6063611_R2.fastq.gz",
+  "GatkMosquitoPipeline.sample_id": "SRR6063611",
+  "GatkMosquitoPipeline.reference_fasta": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta",
+  "GatkMosquitoPipeline.reference_fasta_idx": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.fai",
+  "GatkMosquitoPipeline.reference_dict": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.dict",
+  "GatkMosquitoPipeline.reference_bwt": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.bwt",
+  "GatkMosquitoPipeline.reference_ann": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.ann",
+  "GatkMosquitoPipeline.reference_amb": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.amb",
+  "GatkMosquitoPipeline.reference_pac": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.pac",
+  "GatkMosquitoPipeline.reference_sa": "s3://<BUCKET>/reference/mosquito/AaegL5/AaegL5.fasta.sa",
+  "GatkMosquitoPipeline.docker_image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/nea-ehi-gatk-bwa:latest"
+}

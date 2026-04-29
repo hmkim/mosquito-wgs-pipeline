@@ -1,0 +1,9 @@
+{
+  "inputFASTQ_1": "s3://nea-ehi-wgs-data-664263524008-ap-northeast-2/raw/mosquito-wgs/SRR6063611/SRR6063611_R1.fastq.gz",
+  "inputFASTQ_2": "s3://nea-ehi-wgs-data-664263524008-ap-northeast-2/raw/mosquito-wgs/SRR6063611/SRR6063611_R2.fastq.gz",
+  "inputRefTarball": "s3://nea-ehi-wgs-data-664263524008-ap-northeast-2/reference/mosquito/AaegL5/AaegL5.fasta.tar",
+  "ecr_registry": "664263524008.dkr.ecr.ap-northeast-2.amazonaws.com",
+  "aws_region": "ap-northeast-2",
+  "gvcfMode": true,
+  "readGroup_sampleName": "SRR6063611"
+}

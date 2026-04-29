@@ -1,9 +1,9 @@
 # Data Inventory — NEA-EHI Mosquito WGS Project
 
-**Date:** 2026-04-14
+**Date:** 2026-04-14 (updated 2026-04-27)
 **S3 Bucket:** `<BUCKET>`
 **Region:** ap-northeast-2
-**Total Size:** 178.4 GiB (32 objects)
+**Total Size:** ~268 GiB (includes raw FASTQ, reference, Parabricks output)
 
 ---
 
@@ -143,7 +143,23 @@ BioProject 전체에는 아래와 같은 데이터가 존재한다:
 
 ---
 
-## 5. S3 Full Listing
+## 5. Parabricks Batch Output (82.4 GiB)
+
+**Date:** 2026-04-26  
+**Platform:** AWS Batch, g5.12xlarge (4x A10G)  
+**S3 Prefix:** `s3://<BUCKET>/output/parabricks-batch/SRR6063611/`
+
+| File | Size | Description |
+|------|------|-------------|
+| `SRR6063611.pb.bam` | 23.6 GiB | Sorted, deduped BAM (Parabricks fq2bam) |
+| `SRR6063611.pb.bam.bai` | 3.8 MiB | BAM index |
+| `SRR6063611.g.vcf` | 53.2 GiB | Uncompressed gVCF (Parabricks haplotypecaller --gvcf) |
+
+Note: Parabricks outputs uncompressed gVCF by default. 53.2 GiB ≈ ~6.8 GiB compressed.
+
+---
+
+## 6. S3 Full Listing
 
 ```
 <BUCKET>/
@@ -170,11 +186,14 @@ BioProject 전체에는 아래와 같은 데이터가 존재한다:
 │           ├── AaegL5.fasta              ( 1.2 GiB)
 │           ├── AaegL5.fasta.fai
 │           ├── AaegL5.dict
-│           ├── AaegL5.fasta.0123         ( 2.4 GiB)
+│           ├── AaegL5.fasta.0123         ( 2.4 GiB)  BWA-mem2
 │           ├── AaegL5.fasta.amb
 │           ├── AaegL5.fasta.ann
-│           ├── AaegL5.fasta.bwt.2bit.64  ( 3.9 GiB)
+│           ├── AaegL5.fasta.bwt.2bit.64  ( 3.9 GiB)  BWA-mem2
+│           ├── AaegL5.fasta.bwt          ( 2.6 GiB)  BWA v0.7.x
+│           ├── AaegL5.fasta.sa           ( 1.3 GiB)  BWA v0.7.x
 │           ├── AaegL5.fasta.pac          (304.9 MiB)
+│           ├── AaegL5.fasta.tar          ( 3.3 GiB)  Parabricks ref tarball
 │           ├── AaegL5.gff3              (117.4 MiB)
 │           ├── cds_from_genomic.fna
 │           ├── protein.faa
@@ -185,6 +204,13 @@ BioProject 전체에는 아래와 같은 데이터가 존재한다:
 │       ├── test_cohort.raw.vcf.gz
 │       ├── test_cohort.filtered.vcf.gz
 │       └── test_cohort.filtered.vcf.gz.tbi
+├── output/
+│   └── parabricks-batch/
+│       └── SRR6063611/
+│           ├── SRR6063611.pb.bam         (23.6 GiB)
+│           ├── SRR6063611.pb.bam.bai     ( 3.8 MiB)
+│           └── SRR6063611.g.vcf          (53.2 GiB)
+├── omics-output/                          HealthOmics run outputs
 └── scripts/
     ├── 01_prepare_reference.sh
     ├── 02_simulate_reads.sh
