@@ -1,0 +1,44 @@
+.omc/
+.claude/
+.DS_Store
+*.zip
+papers/
+genomes/
+ref_data/
+emails/
+
+# License files
+*.lic
+
+# Local config
+.mcp.json
+
+# Large data / concordance working files
+test_sentieon/
+
+# External repos
+sentieon-amazon-omics/
+parabricks-omics-private-workflows/
+
+# PDFs (papers, copyrighted)
+*.pdf
+
+# Internal emails
+*.eml
+
+# Sentieon model bundles (large binaries, stored on S3)
+*.bundle
+
+# Internal benchmark reports
+*.html
+
+# Internal working documents — contain customer names, account context,
+# budget projections, and meeting notes. Never commit these.
+# Prefer placing new internal docs under internal/ rather than the repo root.
+internal/
+meeting-prep-*.md
+customer-questions-*.md
+*-customer-response-*.md
+*-summary-message-*.md
+sentieon-benchmark-report.md
+healthomics-cpu-instance-report.md
